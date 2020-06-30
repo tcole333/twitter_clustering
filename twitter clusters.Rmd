@@ -1,0 +1,193 @@
+---
+title: "Twitter Clustering"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=FALSE, suppress = TRUE}
+library(igraph)
+library(dplyr)
+library(lsa)
+library(rtweet)
+```
+
+First pull everyone you follow and who is following you
+```{r}
+twitter_handle <- 'travluptuous'
+#get all my followers and people I follow
+my_following <- get_friends(twitter_handle)
+#remove first column
+my_following <- my_following[2]
+my_followers <- get_followers(twitter_handle)
+
+```
+
+Remove everyone who you follow and they follow you back since (could create a separate list of these accounts since they are likely to be friends instead of large accounts). You are left with 'Non Mutuals'
+```{r}
+#get all the users I follow who dont follow me back
+non_mutuals <- subset(my_following, !(user_id %in% my_followers$user_id))
+non_mutuals <- as.list(non_mutuals$user_id)
+#get all the users who I follow and they follow me back
+mutuals <- subset(my_following, (user_id %in% my_followers$user_id))
+mutuals <- as.list(mutuals$user_id)
+```
+
+Create a dataframe of all the non mutuals and everyone they follow, this can take a while due to rate limits
+```{r}
+#create data frames for all the non_mutuals with who they follow
+#commenting out for now
+for (i in non_mutuals) {
+  assign(paste0('df_', i), get_friends(i, retryonratelimit = TRUE))
+
+}
+#create a copy of the dataframe
+user_df<- df_103130238 
+
+
+```
+
+Remove anyone with less than 650 followers and add them to the mutual list. Arbitrarily set in order to try and remove users who are small accounts but just don't follow you back
+```{r}
+user_df_filtered <- user_df
+filtered_users <- c()
+non_mutuals_filtered <- non_mutuals
+```
+
+```{r}
+for (i in non_mutuals) {
+  if (nrow(user_df %>% filter(user == i)) < 600){
+  user_df_filtered <- user_df_filtered %>% filter(user != i)
+  filtered_users <- append(filtered_users, i)
+  non_mutuals_filtered <- non_mutuals_filtered[non_mutuals_filtered != i]
+  }
+}
+
+```
+
+Create an empty symmetric matrix to populate as the adjacency matrix
+```{r}
+#create an empty matrix n_users x n_users
+user_matrix <- matrix(data = 0, nrow = length(non_mutuals_filtered), ncol = length(non_mutuals_filtered))
+```
+
+
+Each row is a user and each column is a user, for each row set the value to 1 for every user that the row is following that exists in the non mutuals list
+```{r}
+
+#loop through each user
+for (i in non_mutuals_filtered){
+  #loop through all the followers 
+  for (j in non_mutuals_filtered){
+    #check each element of j to see if they are followed by i
+    #filter the df to only be i's followers
+    i_following <- user_df_filtered %>% filter(user == i)
+    i_following_list <- as.list(i_following$user_id)
+    for (k in i_following_list){
+      if (j == k) {
+        idx_c <- match(j,non_mutuals_filtered)
+        idx_r <- match(i,non_mutuals_filtered)
+        user_matrix[idx_c, idx_r] <-  1
+      }
+    }
+  }
+}
+```
+
+create an undirected graph from the adjacency matrix
+```{r}
+user_graph_undirected_orig <- graph_from_adjacency_matrix(user_matrix, mode = 'undirected')
+user_graph_undirected_orig <- simplify(user_graph_undirected_orig, edge.attr.comb = 'sum')
+```
+
+Get a cleaner list of the users
+```{r}
+user_list <- c()
+for (i in 1:length(non_mutuals_filtered)){
+  user_list <- append(user_list, non_mutuals_filtered[[i]])}
+```
+
+
+Remove unconnected nodes
+```{r}
+iso_nodes <- which(degree(user_graph_undirected_orig) == 0)
+iso_nodes
+non_mutuals_filtered <- user_list[-iso_nodes]
+user_graph_undirected <- delete.vertices(user_graph_undirected_orig, iso_nodes)
+
+#user_graph_undirected <- user_graph_undirected_orig
+coords <- layout_with_fr(user_graph_undirected)
+```
+
+Plot the basic graph
+```{r  echo=FALSE}
+plot(user_graph_undirected, edge.arrow.size = 0.2, layout=coords)
+```
+
+
+Greedy Community Detection
+
+```{r}
+cl_1 <- cluster_fast_greedy(user_graph_undirected)
+
+```
+
+Plot with background
+```{r}
+plot(cl_1, user_graph_undirected, layout=coords)
+```
+Plot just the colored nodes
+```{r}
+plot(user_graph_undirected, vertex.color=membership(cl_1), layout=coords)
+```
+
+Spectral Clustering
+
+```{r}
+cl_2 <- cluster_leading_eigen(user_graph_undirected)
+```
+
+Plot with background
+```{r}
+plot(cl_2, user_graph_undirected, layout=coords)
+```
+
+Plot just the clustered nodes
+```{r}
+plot(user_graph_undirected, vertex.color=membership(cl_2), layout=coords)
+```
+
+
+Get the membership of the clusters and create the list
+
+Create a list of all the usernames for the ids
+```{r}
+user_names <- c()
+for (i in non_mutuals_filtered){
+  user <- lookup_users(i)
+  user_names <- append(user_names, user$screen_name)
+}
+```
+
+```{r}
+
+df_list <- data.frame('users' = non_mutuals_filtered, 'clusters' = cl_2$membership, 'user_names' = user_names)
+df_list
+```
+
+Now create the twitter lists, exlcude any small clusters (less than 10 users)
+```{r}
+for (i in 1:length(unique(cl_2$membership))) {
+  df <- df_list %>% filter(clusters == i)
+  #delete existing lists with the same name
+  post_list(slug = paste0('list', i), destroy = TRUE)
+  #filter out small lists
+  if (nrow(df) > 10){
+  users <- df$user_names
+  post_list(users, paste0('list', i))
+  }
+}
+```
+
