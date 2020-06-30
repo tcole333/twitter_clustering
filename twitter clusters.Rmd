@@ -17,12 +17,11 @@ library(tidyr)
 
 First pull everyone you follow and who is following you
 ```{r}
-twitter_handle <- 'travluptuous'
 #get all my followers and people I follow
-my_following <- get_friends(twitter_handle)
+my_following <- get_friends('travluptuous')
 #remove first column
 my_following <- my_following[2]
-my_followers <- get_followers(twitter_handle)
+my_followers <- get_followers('travluptuous')
 
 ```
 
@@ -175,7 +174,7 @@ for (i in non_mutuals_filtered){
 ```{r}
 
 df_list <- data.frame('users' = non_mutuals_filtered, 'clusters' = cl_2$membership, 'user_names' = user_names)
-df_list
+
 ```
 
 Now create the twitter lists, exlcude any small clusters (less than 10 users)
