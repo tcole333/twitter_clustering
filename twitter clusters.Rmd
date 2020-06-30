@@ -12,6 +12,7 @@ library(igraph)
 library(dplyr)
 library(lsa)
 library(rtweet)
+library(tidyr)
 ```
 
 First pull everyone you follow and who is following you
