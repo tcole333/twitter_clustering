@@ -18,10 +18,10 @@ library(tidyr)
 First pull everyone you follow and who is following you
 ```{r}
 #get all my followers and people I follow
-my_following <- get_friends('travluptuous')
+my_following <- get_friends('')
 #remove first column
 my_following <- my_following[2]
-my_followers <- get_followers('travluptuous')
+my_followers <- get_followers('')
 
 ```
 
